@@ -172,7 +172,9 @@ else
 	# LOCALVERSION= is not specified
 	if test "${LOCALVERSION+set}" != "set"; then
 		scm=$(scm_version --short)
+# remove appending "+", MYIR
 		res="$res${scm:++}"
+#		res="$res${scm:+}"
 	fi
 fi
 

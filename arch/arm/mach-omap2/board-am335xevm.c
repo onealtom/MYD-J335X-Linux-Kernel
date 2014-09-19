@@ -82,7 +82,7 @@
 /* LCD backlight platform Data */
 #define AM335X_BACKLIGHT_MAX_BRIGHTNESS        100
 #define AM335X_BACKLIGHT_DEFAULT_BRIGHTNESS    80
-#define AM335X_PWM_PERIOD_NANO_SECONDS        (1000 * 50)/* increase to 20KHz */
+#define AM335X_PWM_PERIOD_NANO_SECONDS        (1000 * 50) /* increase to 20KHz */
 
 static struct platform_pwm_backlight_data am335x_backlight_data = {
 	.pwm_id         = "ehrpwm.0:0",
@@ -540,15 +540,19 @@ static struct pinmux_config gpio_wdi_mux[] = {
         {NULL, 0},
 };
 
-/* pinmux for watch dog timer input, MYIR */
+/* pinmux for e2pwp, MYIR */
 static struct pinmux_config gpio_e2pwp_mux[] = {
         {"emu0.gpio3_7",  OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT},
         {NULL, 0},
 };
 
-/* pinmux for LCD capacitive TP INT */
+/* pinmux for LCD capacitive TP INT
+	myd-am335x-y - spi0_cs1.gpio0_6
+	myd-am335x-j - xdma_event_intr1.gpio0_20
+ */
 static struct pinmux_config gpio_tpint_mux[] = {
-        {"spi0_cs1.gpio0_6",  OMAP_MUX_MODE7 | AM33XX_PIN_INPUT_PULLUP},
+/*        {"spi0_cs1.gpio0_6",  OMAP_MUX_MODE7 | AM33XX_PIN_INPUT_PULLUP}, */
+        {"xdma_event_intr1.gpio0_20",  OMAP_MUX_MODE7 | AM33XX_PIN_INPUT_PULLUP},
         {NULL, 0},
 };
 
@@ -919,9 +923,10 @@ static void evm_nand_init(int evm_id, int profile)
 }
 
 static struct i2c_board_info am335x_i2c1_boardinfo[] = {
+/* move to i2c0 
 	{
 		I2C_BOARD_INFO("sgtl5000", 0x0A),
-	},
+	}, */
 	{
 		I2C_BOARD_INFO("tda998x", 0x70),
 	},
@@ -1074,7 +1079,7 @@ static void myir_gpio_init(int evm_id, int profile)
 	gpio_direction_output(GPIO_TO_PIN(0, 7), 0);
 	gpio_export(GPIO_TO_PIN(0, 7), 0); /* direction may not changed */
 	
-	/* GPIO0_6 for capacitive TP INT pin */
+	/* GPIO0_20 for capacitive TP INT pin */
     setup_pin_mux(gpio_tpint_mux);
 
 #ifdef	CONFIG_MYIR_WDT
@@ -1232,6 +1237,9 @@ static struct i2c_board_info __initdata am335x_i2c0_boardinfo[] = {
 		I2C_BOARD_INFO("tps65910", TPS65910_I2C_ID1),
 		.platform_data  = &am335x_tps65910_info,
 	},
+    { /* MYD-AM335X-J */
+        I2C_BOARD_INFO("sgtl5000", 0x0A),
+    },
 };
 
 static struct omap_musb_board_data musb_board_data = {
@@ -1254,9 +1262,12 @@ static void __init am335x_evm_i2c_init(void)
 	setup_pin_mux(i2c0_pin_mux);
 	omap_register_i2c_bus(1, 100, am335x_i2c0_boardinfo,
 				ARRAY_SIZE(am335x_i2c0_boardinfo));
+
+
+/* No i2c1 in MYD-AM335X-J
 	setup_pin_mux(i2c1_pin_mux);
 	omap_register_i2c_bus(2, 100, am335x_i2c1_boardinfo,
-				ARRAY_SIZE(am335x_i2c1_boardinfo));
+				ARRAY_SIZE(am335x_i2c1_boardinfo)); */
 }
 
 static struct resource am335x_rtc_resources[] = {
@@ -1412,7 +1423,9 @@ static void __init am335x_evm_init(void)
 	am33xx_mux_init(board_mux);
 	omap_serial_init();
 	am335x_rtc_init();
-	clkout2_enable();
+	
+	/* conflicts with cap ts int pin on myd-am335x-j, MYIR
+	clkout2_enable(); */
 	am335x_evm_i2c_init();
 	am335x_evm_setup();
 	omap_sdrc_init(NULL, NULL);
