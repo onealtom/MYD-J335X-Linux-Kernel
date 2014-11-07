@@ -68,6 +68,9 @@
 #include "devices.h"
 #include "hsmmc.h"
 
+/* Add by JBO for support sc16is752 */
+#include <linux/sc16is7x2.h>
+
 /* Convert GPIO signal to GPIO pin number */
 #define GPIO_TO_PIN(bank, gpio) (32 * (bank) + (gpio))
 
@@ -82,7 +85,7 @@
 /* LCD backlight platform Data */
 #define AM335X_BACKLIGHT_MAX_BRIGHTNESS        100
 #define AM335X_BACKLIGHT_DEFAULT_BRIGHTNESS    80
-#define AM335X_PWM_PERIOD_NANO_SECONDS        (1000 * 50) /* increase to 20KHz */
+#define AM335X_PWM_PERIOD_NANO_SECONDS        (1000 * 50)/* increase to 20KHz */
 
 static struct platform_pwm_backlight_data am335x_backlight_data = {
 	.pwm_id         = "ehrpwm.0:0",
@@ -100,6 +103,22 @@ static int __init lcd_type_init(char* s) {
         return 0;
 }
 __setup("dispmode=", lcd_type_init);
+
+/* Add by JBO for handling uart2 setting */
+static bool uart2_to_uart5hwc = false;
+static void __init uart2_setup(char *s) {
+	if (s[0] == '1')
+		uart2_to_uart5hwc = true;
+}
+__setup("uart2_to_uart5hwc=", uart2_setup);
+
+/* Add by JBO for handling uart4 setting */
+static bool uart4_to_can1 = true;
+static void __init uart4_setup(char *s) {
+	if (s[0] == '0')
+		uart4_to_can1 = false;
+}
+__setup("uart4_to_can1=", uart4_setup);
 
 static char* display_mode = "hdmi480p";
 module_param(display_mode, charp, S_IRUGO);
@@ -470,10 +489,17 @@ static struct pinmux_config i2c0_pin_mux[] = {
 
 static struct pinmux_config i2c1_pin_mux[] = {
 	{"spi0_d1.i2c1_sda",    OMAP_MUX_MODE2 | AM33XX_SLEWCTRL_SLOW |
-					AM33XX_PULL_ENBL | AM33XX_INPUT_EN},
+             	            AM33XX_PULL_ENBL | AM33XX_INPUT_EN | AM33XX_PULL_UP},
 	{"spi0_cs0.i2c1_scl",   OMAP_MUX_MODE2 | AM33XX_SLEWCTRL_SLOW |
-					AM33XX_PULL_ENBL | AM33XX_INPUT_EN},
+	                        AM33XX_PULL_ENBL | AM33XX_INPUT_EN | AM33XX_PULL_UP},
 	{NULL, 0},
+};
+
+/* Add by JBO */
+static struct pinmux_config i2c_gpio_pin_mux[] = {
+	{"spi0_d1.gpio0_4", OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
+	{"spi0_cs0.gpio0_5", OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
+	{NULL, 0 },
 };
 
 /* Module pin mux for mcasp0 */
@@ -506,17 +532,10 @@ static struct pinmux_config mmc0_cd_only_pin_mux[] = {
 	{NULL, 0},
 };
 
-static struct pinmux_config d_can_pin_mux[] = {
-	{"uart0_ctsn.d_can1_tx", OMAP_MUX_MODE2 | AM33XX_PULL_ENBL},
-	{"uart0_rtsn.d_can1_rx", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
-        {NULL, 0},
-};
-
-
 /* pinmux for gpio based key */
 static struct pinmux_config gpio_keys_pin_mux[] = {
-	{"mii1_col.gpio3_0",    OMAP_MUX_MODE7 | AM33XX_PIN_INPUT},
-	{"rmii1_refclk.gpio0_29",	OMAP_MUX_MODE7 | AM33XX_PIN_INPUT},
+	{"gpmc_ad8.gpio0_22", OMAP_MUX_MODE7 | AM33XX_PIN_INPUT},
+	{"gpmc_ad9.gpio0_23", OMAP_MUX_MODE7 | AM33XX_PIN_INPUT},
 	{NULL, 0},
 };
 
@@ -524,14 +543,8 @@ static struct pinmux_config gpio_keys_pin_mux[] = {
 static struct pinmux_config gpio_led_mux[] = {
 	    {"mcasp0_aclkr.gpio3_18",  OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT},
         {"spi0_d0.gpio0_3",  OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT},
-        {"gpmc_ad11.gpio0_27",  OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT},
+        //{"gpmc_ad11.gpio0_27",  OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT},
 	{NULL, 0},
-};
-
-/* pinmux for buzzer, MYIR */
-static struct pinmux_config gpio_buzzer_mux[] = {
-        {"ecap0_in_pwm0_out.gpio0_7",  OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT},
-    	{NULL, 0},
 };
 
 /* pinmux for watch dog timer input, MYIR */
@@ -547,13 +560,12 @@ static struct pinmux_config gpio_e2pwp_mux[] = {
 };
 
 /* pinmux for LCD capacitive TP INT
-	myd-am335x-y - spi0_cs1.gpio0_6
-	myd-am335x-j - xdma_event_intr1.gpio0_20
- */
+       myd-am335x-y - spi0_cs1.gpio0_6
+	       myd-am335x-j - xdma_event_intr1.gpio0_20
+*/
 static struct pinmux_config gpio_tpint_mux[] = {
-/*        {"spi0_cs1.gpio0_6",  OMAP_MUX_MODE7 | AM33XX_PIN_INPUT_PULLUP}, */
-        {"xdma_event_intr1.gpio0_20",  OMAP_MUX_MODE7 | AM33XX_PIN_INPUT_PULLUP},
-        {NULL, 0},
+	{"xdma_event_intr1.gpio0_20",  OMAP_MUX_MODE7 | AM33XX_PIN_INPUT_PULLUP},
+    {NULL, 0},
 };
 
 /*
@@ -636,6 +648,8 @@ static struct pinmux_config ehrpwm0_pin_mux[] = {
 static struct pinmux_config uart1_pin_mux[] = {
         {"uart1_rxd.uart1_rxd", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
         {"uart1_txd.uart1_txd", OMAP_MUX_MODE0 | AM33XX_PULL_ENBL},
+		{"uart1_ctsn.uart1_ctsn", OMAP_MUX_MODE0 | AM33XX_PIN_INPUT_PULLUP},
+		{"uart1_rtsn.uart1_rtsn", OMAP_MUX_MODE0 | AM33XX_PIN_OUTPUT_PULLUP},
         {NULL, 0},
 };
 /* Module pin mux for uart2 */
@@ -643,6 +657,12 @@ static struct pinmux_config uart2_pin_mux[] = {
         {"mii1_crs.uart2_rxd", OMAP_MUX_MODE6 | AM33XX_PIN_INPUT_PULLUP},
         {"mii1_rxerr.uart2_txd", OMAP_MUX_MODE6 | AM33XX_PULL_ENBL},
         {NULL, 0},
+};
+/* Module pin mux for uart2 to uart5 hw control -- Add by JBO */
+static struct pinmux_config uart2_to_uart5hwc_pin_mux[] = {
+	{"mii1_crs.uart5_ctsn", OMAP_MUX_MODE5 | AM33XX_PIN_INPUT_PULLUP},
+	{"mii_rxerr.uart5_rtsn", OMAP_MUX_MODE5 | AM33XX_PIN_OUTPUT_PULLUP},
+	{NULL, 0},
 };
 
 /* Module pin mux for uart3 */
@@ -652,13 +672,32 @@ static struct pinmux_config uart3_pin_mux[] = {
         {NULL, 0},
 };
 
-/* Module pin mux for uart4 */
+/* Module pin mux for uart4 to can1 -- Add by JBO */
+static struct pinmux_config can1_pin_mux[] = {
+	{"uart0_ctsn.d_can1_tx", OMAP_MUX_MODE2 | AM33XX_PULL_ENBL},
+	{"uart0_rtsn.d_can1_rx", OMAP_MUX_MODE2 | AM33XX_PIN_INPUT_PULLUP},
+	{NULL, 0},
+};
+/* Module pin mux for uart4 -- Add by JBO */
 static struct pinmux_config uart4_pin_mux[] = {
-        {"uart0_ctsn.uart4_rxd", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP},
-        {"uart0_rtsn.uart4_txd", OMAP_MUX_MODE1 | AM33XX_PULL_ENBL},
-        {NULL, 0},
+	{"uart0_ctsn.uart4_rxd", OMAP_MUX_MODE1 | AM33XX_PIN_INPUT_PULLUP },
+	{"uart0_rtsn.uart4_txd", OMAP_MUX_MODE1 | AM33XX_PULL_ENBL },
+	{NULL, 0},
 };
 
+/* Module pin mux for uart5 */
+static struct pinmux_config uart5_pin_mux[] = {
+	{"mii1_col.uart5_rxd", OMAP_MUX_MODE3 | AM33XX_PIN_INPUT_PULLUP},
+	{"rmii1_refclk.uart5_txd", OMAP_MUX_MODE3 | AM33XX_PULL_ENBL},
+	{NULL, 0},
+};
+
+/* Pin mux for sc16is7x2 -- Add by JBO */
+static struct pinmux_config sc16is7x2_pin_mux[] = {
+	{"gpmc_ad10.gpio0_26", OMAP_MUX_MODE7 | AM33XX_PIN_OUTPUT_PULLUP},
+	{"gpmc_ad11.gpio0_27", OMAP_MUX_MODE7 | AM33XX_INPUT_EN},
+	{NULL, 0 },
+};
 
 #define AM335XEVM_WLAN_PMENA_GPIO	GPIO_TO_PIN(1, 30)
 #define AM335XEVM_WLAN_IRQ_GPIO		GPIO_TO_PIN(3, 17)
@@ -922,17 +961,6 @@ static void evm_nand_init(int evm_id, int profile)
 	omap_init_elm();
 }
 
-static struct i2c_board_info am335x_i2c1_boardinfo[] = {
-/* move to i2c0 
-	{
-		I2C_BOARD_INFO("sgtl5000", 0x0A),
-	}, */
-	{
-		I2C_BOARD_INFO("tda998x", 0x70),
-	},
-};
-
-
 /* Setup McASP 0 */
 static void mcasp0_init(int evm_id, int profile)
 {
@@ -952,9 +980,14 @@ static void uart1_init(int evm_id, int profile)
 
 static void uart2_init(int evm_id, int profile)
 {
-        /* Configure Uart2*/
-        setup_pin_mux(uart2_pin_mux);
-        return;
+    /* Configure Uart2*/
+	if (!uart2_to_uart5hwc) {
+		setup_pin_mux(uart2_pin_mux);
+	} else {
+		setup_pin_mux(uart2_to_uart5hwc_pin_mux);
+	}
+	
+    return;
 }
 
 static void uart3_init(int evm_id, int profile)
@@ -966,17 +999,26 @@ static void uart3_init(int evm_id, int profile)
 
 static void uart4_init(int evm_id, int profile)
 {
-        /* Configure Uart4*/
-        setup_pin_mux(uart4_pin_mux);
-        return;
+	if (!uart4_to_can1)
+		setup_pin_mux(uart4_pin_mux);
+	return;
 }
 
+static void uart5_init(int evm_id, int profile)
+{
+	/* Configure Uart5 */
+	setup_pin_mux(uart5_pin_mux);
+	return;
+}
 
 static void d_can_init(int evm_id, int profile)
 {
-	setup_pin_mux(d_can_pin_mux);
-	/* Instance Zero */
-	am33xx_d_can_init(1);
+	/* Configure can1 */
+	if (uart4_to_can1) {
+		setup_pin_mux(can1_pin_mux);
+		/* Instance One */
+		am33xx_d_can_init(1);
+	}
 }
 
 static void mmc0_init(int evm_id, int profile)
@@ -991,20 +1033,20 @@ static void mmc0_init(int evm_id, int profile)
 /* Configure GPIOs for GPIO Keys */
 static struct gpio_keys_button gpio_buttons[] = {
         {
-                .code                   = KEY_HOME,
-                .gpio                   = GPIO_TO_PIN(0, 29),
+                .code                   = KEY_MENU,
+                .gpio                   = GPIO_TO_PIN(0, 22),
                 .active_low             = true,
                 .desc                   = "menu",
                 .type                   = EV_KEY,
-//              .wakeup                 = 1,
+                .wakeup                 = 1,
         },
         {
-                .code                   = KEY_ESC,
-                .gpio                   = GPIO_TO_PIN(3, 0),
+                .code                   = KEY_BACK,
+                .gpio                   = GPIO_TO_PIN(0, 23),
                 .active_low             = true,
                 .desc                   = "back",
                 .type                   = EV_KEY,
-//              .wakeup                 = 1,
+                .wakeup                 = 1,
         },
 };
 
@@ -1039,10 +1081,10 @@ static struct gpio_led gpio_leds[] = {
         },{
                 .name                   = "user_led0",
                 .gpio                   = GPIO_TO_PIN(0, 3),
-        },{
+        },/*{
 			    .name                   = "user_led1",
 			    .gpio                   = GPIO_TO_PIN(0, 27),
-	},
+		},*/
 };
 
 static struct gpio_led_platform_data gpio_led_info = {
@@ -1071,17 +1113,9 @@ static void gpio_led_init(int evm_id, int profile)
 /* MYIR gpio init */
 static void myir_gpio_init(int evm_id, int profile)
 {
-	printk(KERN_ERR"-- %s().\n", __func__);
-
-	/* GPIO0_7 for buzzer control */
-	setup_pin_mux(gpio_buzzer_mux);
-	gpio_request(GPIO_TO_PIN(0, 7), "buzzer");
-	gpio_direction_output(GPIO_TO_PIN(0, 7), 0);
-	gpio_export(GPIO_TO_PIN(0, 7), 0); /* direction may not changed */
+	/* GPIO0_6 for capacitive TP INT pin */
+	setup_pin_mux(gpio_tpint_mux);
 	
-	/* GPIO0_20 for capacitive TP INT pin */
-    setup_pin_mux(gpio_tpint_mux);
-
 #ifdef	CONFIG_MYIR_WDT
 	/* gpio3_8, already configured at MLO */
 	setup_pin_mux(gpio_wdi_mux);
@@ -1094,9 +1128,8 @@ static void myir_gpio_init(int evm_id, int profile)
     gpio_export(GPIO_TO_PIN(3, 7), 0); /* direction may not changed */
 }
 
-
 #ifdef	CONFIG_MYIR_WDT
-/* MYIR Watchdog device CAT823 */
+/* MYIR Watchdog device CAT823, GPIO3_8 is WDI on am335x-j */
 static struct myir_wdt_platdata myir_wdt_data = {
     .default_period_ms = 200,
     .gpio_pin = GPIO_TO_PIN(3, 8),
@@ -1115,6 +1148,7 @@ static void myir_wdt_init(int evm_id, int profile)
 }
 #endif /* CONFIG_MYIR_WDT */
 
+
 static struct evm_dev_cfg myd_am335x_dev_cfg[] = {
 	{evm_nand_init, DEV_ON_BASEBOARD, PROFILE_ALL},
 	{mmc0_init,	DEV_ON_BASEBOARD, PROFILE_ALL},
@@ -1128,18 +1162,18 @@ static struct evm_dev_cfg myd_am335x_dev_cfg[] = {
 	{usb1_init,     DEV_ON_BASEBOARD, PROFILE_ALL},	
 	{uart1_init, 	DEV_ON_BASEBOARD, PROFILE_ALL},
 	{uart2_init,    DEV_ON_BASEBOARD, PROFILE_ALL},
-//	{uart3_init,    DEV_ON_BASEBOARD, PROFILE_ALL},
+	{uart3_init,    DEV_ON_BASEBOARD, PROFILE_ALL},
 	{uart4_init,    DEV_ON_BASEBOARD, PROFILE_ALL},
+	{uart5_init,    DEV_ON_BASEBOARD, PROFILE_ALL},
 	{d_can_init,    DEV_ON_BASEBOARD, PROFILE_ALL},
 	{gpio_keys_init,  DEV_ON_BASEBOARD, PROFILE_ALL},
 	{gpio_led_init,  DEV_ON_BASEBOARD, PROFILE_ALL},
 
 	{myir_gpio_init, DEV_ON_BASEBOARD, PROFILE_ALL},
-
 #ifdef CONFIG_MYIR_WDT
 	{myir_wdt_init, DEV_ON_BASEBOARD, PROFILE_ALL},
 #endif
-
+	
 	{NULL, 0, 0},
 };
 
@@ -1178,69 +1212,257 @@ static void am335x_evm_setup(void)
 	return;
 }
 
-static struct regulator_init_data am335x_dummy = {
-	.constraints.always_on	= true,
-};
+/* TPS65217 voltage regulator support */
 
-static struct regulator_consumer_supply am335x_vdd1_supply[] = {
-	REGULATOR_SUPPLY("vdd_mpu", NULL),
-};
-
-static struct regulator_init_data am335x_vdd1 = {
-	.constraints = {
-		.min_uV			= 600000,
-		.max_uV			= 1500000,
-		.valid_modes_mask	= REGULATOR_MODE_NORMAL,
-		.valid_ops_mask		= REGULATOR_CHANGE_VOLTAGE,
-		.always_on		= 1,
+/* 1.5V */
+static struct regulator_consumer_supply tps65217_dcdc1_consumers[] = {
+	{
+		.supply = "vdds_ddr",
 	},
-	.num_consumer_supplies	= ARRAY_SIZE(am335x_vdd1_supply),
-	.consumer_supplies	= am335x_vdd1_supply,
-	.ignore_check_consumers = 1,
-};
-
-static struct regulator_consumer_supply am335x_vdd2_supply[] = {
-	REGULATOR_SUPPLY("vdd_core", NULL),
-};
-
-static struct regulator_init_data am335x_vdd2 = {
-	.constraints = {
-		.min_uV			= 600000,
-		.max_uV			= 1500000,
-		.valid_modes_mask	= REGULATOR_MODE_NORMAL,
-		.valid_ops_mask		= REGULATOR_CHANGE_VOLTAGE,
-		.always_on		= 1,
+	{
+		.supply = "ddr3",
 	},
-	.num_consumer_supplies	= ARRAY_SIZE(am335x_vdd2_supply),
-	.consumer_supplies	= am335x_vdd2_supply,
-	.ignore_check_consumers = 1,
 };
 
-static struct tps65910_board am335x_tps65910_info = {
-	.tps65910_pmic_init_data[TPS65910_REG_VRTC]	= &am335x_dummy,
-	.tps65910_pmic_init_data[TPS65910_REG_VIO]	= &am335x_dummy,
-	.tps65910_pmic_init_data[TPS65910_REG_VDD1]	= &am335x_vdd1,
-	.tps65910_pmic_init_data[TPS65910_REG_VDD2]	= &am335x_vdd2,
-	.tps65910_pmic_init_data[TPS65910_REG_VDD3]	= &am335x_dummy,
-	.tps65910_pmic_init_data[TPS65910_REG_VDIG1]	= &am335x_dummy,
-	.tps65910_pmic_init_data[TPS65910_REG_VDIG2]	= &am335x_dummy,
-	.tps65910_pmic_init_data[TPS65910_REG_VPLL]	= &am335x_dummy,
-	.tps65910_pmic_init_data[TPS65910_REG_VDAC]	= &am335x_dummy,
-	.tps65910_pmic_init_data[TPS65910_REG_VAUX1]	= &am335x_dummy,
-	.tps65910_pmic_init_data[TPS65910_REG_VAUX2]	= &am335x_dummy,
-	.tps65910_pmic_init_data[TPS65910_REG_VAUX33]	= &am335x_dummy,
-	.tps65910_pmic_init_data[TPS65910_REG_VMMC]	= &am335x_dummy,
+/* 1.1V */
+static struct regulator_consumer_supply tps65217_dcdc2_consumers[] = {
+	{
+		.supply = "vdd_mpu",
+	},
+};
+
+/* 1.1V */
+static struct regulator_consumer_supply tps65217_dcdc3_consumers[] = {
+	{
+		.supply = "vdd_core",
+	},
+};
+
+/* 1.8V LDO */
+static struct regulator_consumer_supply tps65217_ldo1_consumers[] = {
+	{
+		.supply = "vdds_rtc",
+	},
+};
+
+/* 3.3V LDO */
+static struct regulator_consumer_supply tps65217_ldo2_consumers[] = {
+	{
+		.supply = "vdds_any_pn",
+	},
+};
+
+/* 1.8V LDO */
+static struct regulator_consumer_supply tps65217_ldo3_consumers[] = {
+	{
+		.supply = "vdds_osc",
+	},
+	{
+		.supply = "vdds_pll_ddr",
+	},
+	{
+		.supply = "vdda_usb0_1p8v",
+	},
+	{
+		.supply = "vdds_sram_core_bg",
+	},
+	{
+		.supply = "vdds_sram_mpu_bb",
+	},
+	{
+		.supply = "vdds_pll_mpu",
+	},
+	{
+		.supply = "vdda_adc",
+	},
+	{
+		.supply = "vdds",
+	},
+	{
+		.supply = "vdds_hvx_1p8v",
+	},
+	{
+		.supply = "vdds_pll_core_lcd",
+	},
+};
+
+/* 3.3V LDO */
+static struct regulator_consumer_supply tps65217_ldo4_consumers[] = {
+	{
+		.supply = "vdds_hvx_ldo4_3p3v",
+	},
+};
+
+static struct regulator_init_data tps65217_regulator_data[] = {
+	/* dcdc1 */
+	{
+		.constraints = {
+			.min_uV = 900000,
+			.max_uV = 1800000,
+			.boot_on = 1,
+			.always_on = 1,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(tps65217_dcdc1_consumers),
+		.consumer_supplies = tps65217_dcdc1_consumers,
+	},
+
+	/* dcdc2 */
+	{
+		.constraints = {
+			.min_uV = 900000,
+			.max_uV = 3300000,
+			.valid_ops_mask = (REGULATOR_CHANGE_VOLTAGE |
+							   REGULATOR_CHANGE_STATUS),
+			.boot_on = 1,
+			.always_on = 1,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(tps65217_dcdc2_consumers),
+		.consumer_supplies = tps65217_dcdc2_consumers,
+	},
+
+	/* dcdc3 */
+	{
+		.constraints = {
+			.min_uV = 900000,
+			.max_uV = 1500000,
+			.valid_ops_mask = (REGULATOR_CHANGE_VOLTAGE |
+							   REGULATOR_CHANGE_STATUS),
+			.boot_on = 1,
+			.always_on = 1,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(tps65217_dcdc3_consumers),
+		.consumer_supplies = tps65217_dcdc3_consumers,
+	},
+
+	/* ldo1 */
+	{
+		.constraints = {
+			.min_uV = 1000000,
+			.max_uV = 3300000,
+			//.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+			.boot_on = 1,
+			.always_on = 1,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(tps65217_ldo1_consumers),
+		.consumer_supplies = tps65217_ldo1_consumers,
+	},
+
+	/* ldo2 */
+	{
+		.constraints = {
+			.min_uV = 900000,
+			.max_uV = 3300000,
+			//.valid_ops_mask = (REGULATOR_CHANGE_VOLTAGE |
+			//				   REGULATOR_CHANGE_STATUS),
+			.boot_on = 1,
+			.always_on = 1,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(tps65217_ldo2_consumers),
+		.consumer_supplies = tps65217_ldo2_consumers,
+	},
+
+	/* ldo3 */
+	{
+		.constraints = {
+			.min_uV = 1800000,
+			.max_uV = 3300000,
+			//.valid_ops_mask = (REGULATOR_CHANGE_VOLTAGE |
+			//				   REGULATOR_CHANGE_STATUS),
+			.boot_on = 1,
+			.always_on = 1,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(tps65217_ldo3_consumers),
+		.consumer_supplies = tps65217_ldo3_consumers,
+	},
+
+	/* ldo4 */
+	{
+		.constraints = {
+			.min_uV = 1800000,
+			.max_uV = 3300000,
+			//.valid_ops_mask = (REGULATOR_CHANGE_VOLTAGE |
+			//				   REGULATOR_CHANGE_STATUS),
+			.boot_on = 1,
+			.always_on = 1,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(tps65217_ldo4_consumers),
+		.consumer_supplies = tps65217_ldo4_consumers,
+	},
+};
+
+static struct tps65217_board myir_tps65217_info = {
+	.tps65217_init_data = &tps65217_regulator_data[0],
+};
+
+static struct ft5x0x_ts_platform_data ts_plat_data = {
+	.irq            = OMAP_GPIO_IRQ(GPIO_TO_PIN(0, 20)),
+	.polling_mode   = 0,
+	.multi_touch    = 0,
+};
+
+static struct at24_platform_data board_eeprom = {
+	.byte_len = 4096,
+	.page_size = 32,
+	.flags = AT24_FLAG_ADDR16,
 };
 
 static struct i2c_board_info __initdata am335x_i2c0_boardinfo[] = {
 	{
-		I2C_BOARD_INFO("tps65910", TPS65910_I2C_ID1),
-		.platform_data  = &am335x_tps65910_info,
+		I2C_BOARD_INFO("tps65217", TPS65217_I2C_ID),
+		.platform_data  = &myir_tps65217_info,
 	},
-    { /* MYD-AM335X-J */
-        I2C_BOARD_INFO("sgtl5000", 0x0A),
-    },
+	{
+		I2C_BOARD_INFO("sgtl5000", 0x0A),
+	},
+	{
+		I2C_BOARD_INFO("ft5x06_ts", 0x38),
+		.platform_data = &ts_plat_data,
+	},
+	{
+		I2C_BOARD_INFO("at24", 0x50),
+		.platform_data = &board_eeprom,
+	},
 };
+
+/* sc16is7x2 -- Add by JBO */
+static const char *i2c_gpio_names[SC16IS7X2_NR_GPIOS] = {
+	"i2c-gpio200",
+	"i2c-gpio201",
+	"i2c-gpio202",
+	"i2c-gpio203",
+	"i2c-gpio204",
+	"i2c-gpio205",
+	"i2c-gpio206",
+	"i2c-gpio207",
+};
+static struct sc16is7x2_platform_data i2c_uart_gpio_data = {
+	.uartclk        = /*48000000*/11059200,/* crystal freq of sc16is7x2*/
+	.uart_base      = 0,
+	.gpio_base      = SC16IS7X2_GPIO_BASE,
+	.label          = NULL,
+	.names          = i2c_gpio_names,
+};
+
+static struct i2c_board_info am335x_i2c1_boardinfo[] = {
+	{
+		I2C_BOARD_INFO("sc16is7x2", 0x48),
+		.platform_data  = &i2c_uart_gpio_data,
+		.irq = OMAP_GPIO_IRQ(GPIO_TO_PIN(0, 27)),
+	},
+};
+
+static void __init am335x_evm_i2c_init(void)
+{
+	setup_pin_mux(i2c0_pin_mux);
+	omap_register_i2c_bus(1, 100, am335x_i2c0_boardinfo,
+				ARRAY_SIZE(am335x_i2c0_boardinfo));
+
+	setup_pin_mux(sc16is7x2_pin_mux);
+	setup_pin_mux(i2c1_pin_mux);
+	omap_register_i2c_bus(2, 100, am335x_i2c1_boardinfo,
+							  ARRAY_SIZE(am335x_i2c1_boardinfo));
+
+}
 
 static struct omap_musb_board_data musb_board_data = {
 	.interface_type	= MUSB_INTERFACE_ULPI,
@@ -1253,22 +1475,6 @@ static struct omap_musb_board_data musb_board_data = {
 	.power		= 500,
 	.instances	= 1,
 };
-
-
-static void __init am335x_evm_i2c_init(void)
-{
-//	evm_init_cpld();
-
-	setup_pin_mux(i2c0_pin_mux);
-	omap_register_i2c_bus(1, 100, am335x_i2c0_boardinfo,
-				ARRAY_SIZE(am335x_i2c0_boardinfo));
-
-
-/* No i2c1 in MYD-AM335X-J
-	setup_pin_mux(i2c1_pin_mux);
-	omap_register_i2c_bus(2, 100, am335x_i2c1_boardinfo,
-				ARRAY_SIZE(am335x_i2c1_boardinfo)); */
-}
 
 static struct resource am335x_rtc_resources[] = {
 	{
@@ -1423,9 +1629,8 @@ static void __init am335x_evm_init(void)
 	am33xx_mux_init(board_mux);
 	omap_serial_init();
 	am335x_rtc_init();
-	
 	/* conflicts with cap ts int pin on myd-am335x-j, MYIR
-	clkout2_enable(); */
+    clkout2_enable(); */
 	am335x_evm_i2c_init();
 	am335x_evm_setup();
 	omap_sdrc_init(NULL, NULL);
