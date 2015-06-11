@@ -36,7 +36,10 @@
 #include <linux/mfd/tps65910.h>
 #include <linux/mfd/tps65217.h>
 #include <linux/pwm_backlight.h>
-#include <linux/input/ti_tscadc.h>
+#include <linux/platform_data/ti_adc.h>
+#include <linux/mfd/ti_tscadc.h>
+#include <linux/input/ti_tsc.h>
+
 #include <linux/reboot.h>
 #include <linux/pwm/pwm.h>
 #include <linux/opp.h>
@@ -123,11 +126,11 @@ __setup("uart4_to_can1=", uart4_setup);
 static char* display_mode = "hdmi480p";
 module_param(display_mode, charp, S_IRUGO);
 
-#define NUM_OF_LCDMODE 11
-enum  display_num{  lcd4i3  , lcd7i , lcd7ir  , lcd7ic,  vga  ,  lvds  ,  hdmi640x480  ,
+/* Modified by Conway. Added  'lcd7ir-k' and 'lcd7ic-k' */
+#define NUM_OF_LCDMODE 13
+enum  display_num{  lcd4i3  , lcd7i , lcd7ir  ,lcd7ir_k  , lcd7ic,  lcd7ic_k, vga  ,  lvds  ,  hdmi640x480  ,
                              hdmi480p   ,  hdmi1024x768  ,  hdmi720p  ,  hdmi1080i  };
-const char *display_num[]={ "lcd4i3" , "lcd7i" , "lcd7ir" , "lcd7ic", "vga" , "lvds" , "hdmi640x480" ,
-                            "hdmi480p"  , "hdmi1024x768" , "hdmi720p" , "hdmi1080i" };
+const char *display_num[]={ "lcd4i3" , "lcd7i" , "lcd7ir" ,"lcd7ir-k" , "lcd7ic","lcd7ic-k", "vga" , "lvds" , "hdmi640x480" ,  "hdmi480p"  , "hdmi1024x768" , "hdmi720p" , "hdmi1080i" };
 
 static const struct display_panel disp_panel = {
 	WVGA,
@@ -184,45 +187,53 @@ struct da8xx_lcdc_platform_data	am335x_lcdc_pdata[] = {
 		.controller_data	= &lcd_cfg,
 		.type			= "4.3inch_LCD",	
 	},{
-                .manu_name              = "InnoLux",
-                .controller_data        = &lcd_cfg,
-                .type                   = "7inch_LCD_RES",
+		.manu_name		= "InnoLux",
+		.controller_data	= &lcd_cfg,
+		.type			= "7inch_LCD_RES",
 	},{
 		.manu_name		= "InnoLux",
 		.controller_data	= &lcd_cfg,
 		.type			= "7inch_LCD_RES",
 	},{
-                .manu_name              = "InnoLux",
-                .controller_data        = &lcd_cfg,
-                .type                   = "7inch_LCD_CAP",		
+		.manu_name		= "InnoLux",
+		.controller_data	= &lcd_cfg,
+		.type			= "7inch_LCD_RES",
 	},{
-	        .manu_name		= "InnoLux",
-        	.controller_data	= &lcd_cfg,
-	        .type			= "VGA",		
+		.manu_name		= "InnoLux",
+		.controller_data	= &lcd_cfg,
+		.type			= "7inch_LCD_CAP",		
 	},{
-	        .manu_name		= "InnoLux",
-        	.controller_data	= &lcd_cfg,
-	        .type			= "LVDS",	
+		.manu_name		= "InnoLux",
+		.controller_data	= &lcd_cfg,
+		.type			= "7inch_LCD_CAP",		
 	},{
-		.manu_name    		= "NXP HDMI",
-		.controller_data  	= &dvi_cfg,
-		.type      		= "nxp-640x480@60",
+		.manu_name		= "InnoLux",
+		.controller_data	= &lcd_cfg,
+		.type			= "VGA",		
 	},{
-		.manu_name    		= "NXP HDMI",
-		.controller_data  	= &dvi_cfg,
-		.type      		= "nxp-720x480@60",
-	},{
-		.manu_name    		= "NXP HDMI",
-		.controller_data  	= &dvi_cfg,
-		.type      		= "1024x768@60",
+		.manu_name		= "InnoLux",
+		.controller_data	= &lcd_cfg,
+		.type			= "LVDS",	
 	},{
 		.manu_name    		= "NXP HDMI",
 		.controller_data  	= &dvi_cfg,
-		.type      		= "nxp-1280x720@60",
+		.type			= "nxp-640x480@60",
 	},{
 		.manu_name    		= "NXP HDMI",
 		.controller_data  	= &dvi_cfg,
-		.type      		= "nxp-1920x1080@24",
+		.type			= "nxp-720x480@60",
+	},{
+		.manu_name    		= "NXP HDMI",
+		.controller_data  	= &dvi_cfg,
+		.type			= "1024x768@60",
+	},{
+		.manu_name    		= "NXP HDMI",
+		.controller_data  	= &dvi_cfg,
+		.type			= "nxp-1280x720@60",
+	},{
+		.manu_name    		= "NXP HDMI",
+		.controller_data  	= &dvi_cfg,
+		.type			= "nxp-1920x1080@24",
 	},
 };
 
@@ -241,6 +252,16 @@ struct da8xx_lcdc_platform_data *myd_am335x_def_pdata ;
 static struct tsc_data am335x_touchscreen_data  = {
 	.wires  = 4,
 	.x_plate_resistance = 200,
+	.steps_to_configure = 5,
+};
+
+static struct adc_data am335x_adc_data = {
+	.adc_channels = 4,
+};
+
+static struct mfd_tscadc_board tscadc = {
+	.tsc_init = &am335x_touchscreen_data,
+	.adc_init = &am335x_adc_data,
 };
 
 static u8 am335x_iis_serializer_direction0[] = {
@@ -802,6 +823,9 @@ static void display_init(int evm_id, int profile)
 		case lcd7i:
 		case lcd7ir:
 		case lcd7ic:
+		/* Modified by Conway. Added  'lcd7ir-k' and 'lcd7ic-k' */
+		case lcd7ir_k:
+		case lcd7ic_k:
 		case vga:
 		case lvds:
 		default:
@@ -818,6 +842,9 @@ static void display_init(int evm_id, int profile)
 		case lcd7i:
 		case lcd7ir:
 		case lcd7ic:
+		/* Modified by Conway. Added  'lcd7ir-k' and 'lcd7ic-k' */
+		case lcd7ir_k:
+		case lcd7ic_k:
 		case hdmi640x480:
 		case hdmi720p:	
 			myd_am335x_def_pdata=&am335x_lcdc_pdata[i];
@@ -849,6 +876,15 @@ static void tsc_init(int evm_id, int profile)
 
 	setup_pin_mux(tsc_pin_mux);
 	err = am33xx_register_tsc(&am335x_touchscreen_data);
+	if (err)
+		pr_err("failed to register touchscreen device\n");
+}
+
+static void mfd_tscadc_init(int evm_id, int profile)
+{
+	int err;
+
+	err = am33xx_register_mfd_tscadc(&tscadc);
 	if (err)
 		pr_err("failed to register touchscreen device\n");
 }
@@ -1156,7 +1192,8 @@ static struct evm_dev_cfg myd_am335x_dev_cfg[] = {
 	{rgmii2_init,	DEV_ON_BASEBOARD, PROFILE_ALL},
 	{display_init,     DEV_ON_BASEBOARD, PROFILE_ALL},
 	{enable_ehrpwm0,	DEV_ON_BASEBOARD, PROFILE_ALL},
-	{tsc_init,	DEV_ON_BASEBOARD, PROFILE_ALL},
+	//{tsc_init,	DEV_ON_BASEBOARD, PROFILE_ALL},
+	{mfd_tscadc_init, DEV_ON_BASEBOARD, PROFILE_ALL},
 	{mcasp0_init,   DEV_ON_BASEBOARD, PROFILE_ALL},
 	{usb0_init,     DEV_ON_BASEBOARD, PROFILE_ALL},
 	{usb1_init,     DEV_ON_BASEBOARD, PROFILE_ALL},	
